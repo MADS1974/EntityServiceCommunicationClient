@@ -1,18 +1,16 @@
 package br.edu.ifsp.scl.sdm.entityservicecommunicationclient
-
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
 import android.os.IBinder
-import android.os.Messenger
-import android.os.Handler
-import android.os.Looper
-import android.os.Message
 import android.widget.Toast
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
+import br.edu.ifsp.scl.sdm.entityservicecommunication.IncrementBoundServiceInterface
 import br.edu.ifsp.scl.sdm.entityservicecommunicationclient.databinding.ActivityMainBinding
+
 
 class MainActivity : AppCompatActivity() {
     private val amb: ActivityMainBinding by lazy {
@@ -21,35 +19,19 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var incrementBoundServiceIntent: Intent
     private var counter = 0
-    private lateinit var ibsMessenger: Messenger
+    private var ibService: IncrementBoundServiceInterface? = null
 
     private val incrementBoundServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             Log.v(getString(R.string.app_name), "Client bound to the service.")
             service?.also {
-                ibsMessenger = Messenger(service)
-
-                ibsMessenger.send(Message.obtain().apply {
-                    Messenger(object : Handler(Looper.getMainLooper()) {
-                        override fun handleMessage(msg: Message) {
-                            super.handleMessage(msg)
-                            counter = msg.data.getInt("VALUE")
-                            Toast.makeText(
-                                this@MainActivity,
-                                "You clicked $counter times.",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    }).also { messenger ->
-                        replyTo = messenger
-                    }
-                })
+                ibService = IncrementBoundServiceInterface.Stub.asInterface(service)
             }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             Log.v(getString(R.string.app_name), "Client unbound to the service.")
-
+            ibService = null
         }
     }
 
@@ -66,7 +48,7 @@ class MainActivity : AppCompatActivity() {
         if (!bindService(
                 incrementBoundServiceIntent,
                 incrementBoundServiceConnection,
-                BIND_AUTO_CREATE
+                Context.BIND_AUTO_CREATE
             )
         ) {
             Toast.makeText(this, "Service unavailable.", Toast.LENGTH_SHORT).show()
@@ -79,17 +61,23 @@ class MainActivity : AppCompatActivity() {
                 setSupportActionBar(this)
             }
             incrementBt.setOnClickListener {
-                val msg = Message.obtain()
-                val bundle = Bundle()
-                bundle.putInt("VALUE", counter)
-                msg.data = bundle
-
-                if (::ibsMessenger.isInitialized) {
-                    ibsMessenger.send(msg)
-                }
+                Thread {
+                    ibService?.increment(counter)?.also {
+                        counter = it
+                        runOnUiThread {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "You clicked $counter times.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }.start()
             }
+
         }
     }
+
 
     override fun onDestroy() {
         super.onDestroy()
